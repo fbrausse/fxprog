@@ -153,7 +153,7 @@ static struct record * record_read_ihex(FILE *f)
 	size_t dsize = 0;
 	ssize_t ret;
 	uint8_t crc = 0, crc_ref, type;
-	unsigned size, line, j;
+	unsigned size, line, j; /* ignore unnecessary gcc warning about 'line' being clobbered by longjmp */
 	int jmpr;
 
 	for (line = 1; (ret = getline(&data, &dsize, f)) > 0; line++) {
@@ -788,16 +788,18 @@ int main(int argc, char **argv)
 #else
 		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
 			fprintf(stderr, "resetting CPU...\n");
-			libusb_control_tfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
-				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x01}, 1);
+			libusb_control_transfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
+				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x01}, 1,
+				DEFAULT_TIMEOUT);
 		}
 
 		usb_upload_records(hdev, recs, DEFAULT_TIMEOUT);
 
 		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
 			fprintf(stderr, "resuming CPU...\n");
-			libusb_control_tfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
-				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x00}, 1);
+			libusb_control_transfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
+				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x00}, 1,
+				DEFAULT_TIMEOUT);
 		}
 #endif
 
