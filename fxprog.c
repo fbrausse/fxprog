@@ -10,15 +10,15 @@
 #include <sys/stat.h> /* fstat() */
 #include <setjmp.h> /* yeah, yeah, evil... */
 
+#include "usb.h"
+
 #ifdef _POSIX_MAPPED_FILES
 # include <sys/mman.h> /* mmap() */
 #endif
 
-#define ENV_DEV_ADDR		"DEVICE"
-
 /* defaults */
 #define DEFAULT_IN_FMT		"ihex"
-#define DEFAULT_DEV_TYPE	"fx2"
+// #define DEFAULT_DEV_TYPE	"fx2"
 #define DEFAULT_DUMP_FMT	"bin"
 #define DEFAULT_TIMEOUT		200 /* ms */
 
@@ -32,8 +32,12 @@
 #define PID_FX2			0x8613 /* default boot image identification */
 #define PID_FX3			0x00f3 /* default boot image identification */
 
-/* helper macros */
-#define ARRAY_SIZE(arr)		(sizeof(arr)/sizeof(*(arr)))
+enum dev_type_t { DEV_FX2, DEV_FX3 };
+
+static const struct dev_type dev_types[] = {
+	[DEV_FX2] = { "fx2", { VID_CYPRESS, PID_FX2 } },
+	[DEV_FX3] = { "fx3", { VID_CYPRESS, PID_FX3 } },
+};
 
 /* firmware data types */
 struct record {
@@ -64,18 +68,6 @@ static const struct {
 	{ "ihex", record_read_ihex, },
 	{ "cyfw", record_read_cyfw, },
 	{ "bin", record_read_bin, }
-};
-
-typedef uint16_t addr_t[2];
-
-enum dev_type_t { DEV_FX2, DEV_FX3 };
-
-static const struct {
-	const char *name;
-	addr_t addr;
-} dev_types[] = {
-	[DEV_FX2] = { "fx2", { VID_CYPRESS, PID_FX2 } },
-	[DEV_FX3] = { "fx3", { VID_CYPRESS, PID_FX3 } },
 };
 
 static const struct {
@@ -348,123 +340,6 @@ static struct record * record_read_bin(FILE *f)
 
 /* USB helper functions */
 
-static libusb_device ** usb_get_device_list(libusb_context *ctx)
-{
-	libusb_device **devs = NULL;
-	ssize_t ndevs = libusb_get_device_list(ctx, &devs);
-	if (ndevs < 0) {
-		fprintf(stderr, "error enumerating USB devices: %s\n",
-			libusb_error_name(ndevs));
-	} else if (!ndevs) {
-		fprintf(stderr, "error: no USB devices found\n");
-	}
-	return devs;
-}
-
-struct dev_spec {
-	addr_t bus_addr;
-	addr_t vid_pid;
-	unsigned dev_type; /* index into dev_types */
-	unsigned have_bus_addr : 1;
-	unsigned have_vid_pid  : 1;
-	unsigned have_dev_type : 1;
-};
-
-static int usb_desc_eq_vid_pid(
-	const struct libusb_device_descriptor *desc,
-	const addr_t addr
-) {
-	return desc->idVendor == addr[0] && desc->idProduct == addr[1];
-}
-
-static libusb_device_handle * usb_find_device(
-	libusb_context *ctx, struct dev_spec *spec
-) {
-	struct libusb_device_descriptor desc;
-	libusb_device_handle *hdev = NULL;
-	libusb_device **j, **devs, *dev = NULL;
-	addr_t addr;
-	const addr_t *a;
-	unsigned i;
-	int r;
-
-	devs = usb_get_device_list(ctx);
-	if (!devs)
-		return NULL;
-
-	for (j = devs; *j; j++) {
-		addr[0] = libusb_get_bus_number(*j);
-		addr[1] = libusb_get_device_address(*j);
-		if (spec->have_bus_addr) {
-			if (memcmp(addr, spec->bus_addr, sizeof(addr_t)))
-				continue;
-		} else {
-			r = libusb_get_device_descriptor(*j, &desc);
-			if (r) {
-				fprintf(stderr,
-					"warning: unable to access descriptor "
-					"of device on %hu.%hu: %s\n",
-					addr[0], addr[1], libusb_error_name(r));
-				goto out;
-			}
-			if (spec->have_vid_pid) {
-				if (usb_desc_eq_vid_pid(&desc, spec->vid_pid))
-					goto found;
-			} else if (spec->have_dev_type) {
-				a = &dev_types[spec->dev_type].addr;
-				if (usb_desc_eq_vid_pid(&desc, *a))
-					goto found;
-			} else {
-				for (i=0; i<ARRAY_SIZE(dev_types); i++) {
-					a = &dev_types[i].addr;
-					if (usb_desc_eq_vid_pid(&desc, *a))
-						goto found;
-				}
-			}
-			/* nothing matched */
-			continue;
-		}
-found:
-		/* take this one */
-		if (!dev) {
-			dev = *j;
-			continue;
-		}
-		/* not unique */
-		fprintf(stderr,
-			"ambigious device specifier: "
-			"both %hhu.%hhu and %hu.%hu match\n",
-			libusb_get_bus_number(dev),
-			libusb_get_device_address(dev),
-			addr[0], addr[1]);
-		goto out;
-	}
-	if (!dev) {
-		fprintf(stderr, "no matching USB device found\n");
-	} else {
-		r = libusb_get_device_descriptor(dev, &desc);
-		for (i=0; i<ARRAY_SIZE(dev_types); i++)
-			if (usb_desc_eq_vid_pid(&desc, dev_types[i].addr)) {
-				spec->dev_type = i;
-				spec->have_dev_type = 1;
-				break;
-			}
-		fprintf(stderr, "using %s device %04hx:%04hx on bus.addr %hhu.%hhu\n",
-			dev_types[spec->dev_type].name, desc.idVendor, desc.idProduct,
-			libusb_get_bus_number(dev),
-			libusb_get_device_address(dev));
-		r = libusb_open(dev, &hdev);
-		if (r) {
-			fprintf(stderr, "error opening device: %s\n",
-				libusb_error_name(r));
-		}
-	}
-
-out:
-	libusb_free_device_list(devs, 1);
-	return hdev;
-}
-
 static int usb_query_device_fw(libusb_device_handle *hdev, unsigned timeout)
 {
 	int res;
@@ -606,16 +481,17 @@ int main(int argc, char **argv)
 	uint8_t i2c_conf = DEFAULT_I2C_CONF;
 	uint8_t img_type = DEFAULT_IMG_TYPE;
 
-	struct dev_spec spec;
-	memset(&spec, 0, sizeof(spec));
+	struct usb_common uc = USB_COMMON_INIT(dev_types,ARRAY_SIZE(dev_types),-2,-2);
 
-	while ((opt = getopt(argc, argv, ":t:qf:F:c:d:i:rmsl:I:T:hH")) != -1) {
+	r = usb_common_parse_opts(&uc, argc, argv);
+	if (r)
+		return 1;
+
+	while ((opt = getopt(argc, argv, ":qf:F:d:i:rmsl:I:T:hH")) != -1) {
 		switch (opt) {
-		case 't': sdev_type = optarg; break;
 		case 'q': query     = 1; break;
 		case 'f': sin_fmt   = optarg; break;
 		case 'F': sdump_fmt = optarg; break;
-		case 'c': dev_addr  = optarg; break;
 		case 'd': dump      = optarg; break;
 		case 'i': in        = optarg; break;
 		case 'r': cpu_reset = 0; break;
@@ -641,8 +517,6 @@ int main(int argc, char **argv)
 	}
 
 	/* check consistency and validity of supplied options */
-	if (!dev_addr)
-		dev_addr = getenv(ENV_DEV_ADDR);
 	if (dump && load) {
 		fprintf(stderr,
 			"ambigious mode of operation: both load and dump RAM "
@@ -664,41 +538,11 @@ int main(int argc, char **argv)
 	} while (0)
 
 	find_or_die(in_fmt, sin_fmt, in_fmts, "input format (-f)");
-	if (sdev_type) {
-		find_or_die(spec.dev_type, sdev_type, dev_types, "chip type (-t)");
-		spec.have_dev_type = 1;
-	} else {
-		find_or_die(spec.dev_type, DEFAULT_DEV_TYPE, dev_types,
-			"default chip type");
-	}
 	find_or_die(dump_fmt, sdump_fmt, dump_fmts, "dump format (-F)");
 
 #undef find_or_die
 
 	long dump_from = 0, dump_num = 0;
-
-	if (dev_addr) {
-		addr_t *addr;
-		const char *delim = dev_addr + strcspn(dev_addr, ".:");
-		const char *fmt = NULL;
-		int k;
-		switch (*delim) {
-		case '.':
-			fmt = "%hu.%hu";
-			addr = &spec.bus_addr;
-			spec.have_bus_addr = 1;
-			break;
-		case ':':
-			fmt = "%04hx:%04hx";
-			addr = &spec.vid_pid;
-			spec.have_vid_pid = 1;
-			break;
-		}
-		if (!fmt || sscanf(dev_addr, fmt, *addr + 0, *addr + 1) != 2) {
-			fprintf(stderr, "invalid device address: %s\n", dev_addr);
-			exit(1);
-		}
-	}
 
 	if (dump) {
 		char *endptr, c;
@@ -721,24 +565,12 @@ int main(int argc, char **argv)
 		}
 	}
 
-	/* init libusb */
-	libusb_context *ctx = NULL;
-	r = libusb_init(&ctx);
-	if (r) {
-		fprintf(stderr, "error initializing libusb: %s\n",
-			libusb_error_name(r));
-		exit(1);
-	}
-
-	/* find specified USB device */
-	libusb_device_handle *hdev = usb_find_device(ctx, &spec);
-	if (!hdev) {
-		r = 1;
-		goto out1;
-	}
+	r = usb_common_setup(&uc);
+	if (r)
+		return r;
 
 	if (query) {
-		int q = usb_query_device_fw(hdev, DEFAULT_TIMEOUT);
+		int q = usb_query_device_fw(uc.hdev, DEFAULT_TIMEOUT);
 		/* FX3 -> 0x1b (hard reset - power off)
 		 *        0x28 (soft reset - reset switch after having been programmed at least once)
 		 * FX2 -> 0x00 */
@@ -747,7 +579,7 @@ int main(int argc, char **argv)
 	} else if (dump) {
 		/* dump RAM [dump_from,dump_from+dump_num) */
 		struct record *rec = record_create(dump_from, dump_num);
-		usb_control_tfer(hdev, 0xc0, USB_REQ_FIRMWARE_LOAD, rec, &rec->size, DEFAULT_TIMEOUT);
+		usb_control_tfer(uc.hdev, 0xc0, USB_REQ_FIRMWARE_LOAD, rec, &rec->size, DEFAULT_TIMEOUT);
 		fwrite(rec->data, rec->size, 1, stdout);
 		free(rec);
 	} else if (in) {
@@ -769,7 +601,7 @@ int main(int argc, char **argv)
 
 #if 0
 		cpu_reset = NULL;
-		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
+		if (uc.spec.dev_type && dev_types - uc.spec.dev_type == DEV_FX2) {
 			cpu_reset = record_create(FX2_REG_CPUCS, 1);
 			cpu_reset->data[0] = 0x01;
 			fprintf(stderr, "resetting CPU...\n");
@@ -779,25 +611,25 @@ int main(int argc, char **argv)
 
 		usb_upload_records(hdev, recs, DEFAULT_TIMEOUT);
 
-		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
+		if (uc.spec.dev_type && dev_types - uc.spec.dev_type == DEV_FX2) {
 			cpu_reset->data[0] = 0x00;
 			fprintf(stderr, "resuming CPU...\n");
 			usb_upload_records(hdev, cpu_reset, DEFAULT_TIMEOUT);
 			free(cpu_reset);
 		}
 #else
-		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
+		if (uc.spec.dev_type && dev_types - uc.spec.dev_type == DEV_FX2) {
 			fprintf(stderr, "resetting CPU...\n");
-			libusb_control_transfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
+			libusb_control_transfer(uc.hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
 				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x01}, 1,
 				DEFAULT_TIMEOUT);
 		}
 
-		usb_upload_records(hdev, recs, DEFAULT_TIMEOUT);
+		usb_upload_records(uc.hdev, recs, DEFAULT_TIMEOUT);
 
-		if (spec.have_dev_type && spec.dev_type == DEV_FX2) {
+		if (uc.spec.dev_type && dev_types - uc.spec.dev_type == DEV_FX2) {
 			fprintf(stderr, "resuming CPU...\n");
-			libusb_control_transfer(hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
+			libusb_control_transfer(uc.hdev, 0x40, USB_REQ_FIRMWARE_LOAD,
 				FX2_REG_CPUCS, 0x0000, (uint8_t[]){0x00}, 1,
 				DEFAULT_TIMEOUT);
 		}
@@ -811,9 +643,7 @@ int main(int argc, char **argv)
 	}
 
 out2:
-	libusb_close(hdev);
-out1:
-	libusb_exit(ctx);
+	usb_common_teardown(&uc);
 	return r;
 }
 
@@ -834,9 +664,12 @@ static void print_help(const char *prog_name)
 	printf("load RAM w/ arbitrary data: -l <addr> [-i <in.bin>]\n");
 	printf("dump RAM                  : [-F <fmt>] -d <addr>{:<to>|+<size>}\n");
 	printf("\n");
-	printf("  -c <N>.<M>      N: bus #, M: device # (see /sys/bus/usb/devices/N-*/devnum)\n");
-	printf("     <vid>:<pid>  address USB device via a Vendor / Product ID pair\n");
-	printf("                  overrides " ENV_DEV_ADDR "= in env\n");
+	printf("%s", usb_common_help);
+	printf("                  supported:");
+	for (i=0; i<ARRAY_SIZE(dev_types); i++)
+		printf(" %s%c", dev_types[i].name,
+			i < ARRAY_SIZE(dev_types) - 1
+			? ',' : '\n');
 	printf("  -q              query device for boot-loader fw type\n");
 	printf("  -f <format>     format of input data, default: " DEFAULT_IN_FMT "\n");
 	printf("                  supported:");
@@ -848,12 +681,6 @@ static void print_help(const char *prog_name)
 	printf("  -r              don't reset CPU while loading the FW\n");
 	printf("  -m              don't merge adjacent to-be-transferred entries\n");
 	printf("  -s              do sort entries prior to merging / transmission\n");
-	printf("  -t <devtype>    device type, default: " DEFAULT_DEV_TYPE "\n");
-	printf("                  supported:");
-	for (i=0; i<ARRAY_SIZE(dev_types); i++)
-		printf(" %s%c", dev_types[i].name,
-			i < ARRAY_SIZE(dev_types) - 1
-			? ',' : '\n');
 	printf("  -I <i2c-conf>   i2c configuration byte (unchecked), default: 0x%02x\n", DEFAULT_I2C_CONF);
 	printf("  -T <img-type>   image type configuration byte (unchecked), default: 0x%02x\n", DEFAULT_IMG_TYPE);
 	printf("  -F <format>     format to dump RAM contents, default: " DEFAULT_DUMP_FMT "\n");

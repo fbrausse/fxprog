@@ -1,13 +1,16 @@
 
+#define _POSIX_C_SOURCE	201501L	/* getopt(), optind */
+
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <libusb.h>
 #include <stdio.h>
+#include <unistd.h>		/* getopt(), optind */
 
-const char *usage = "<bmRequestType> <bRequest> <wValue> <wIndex> <wLength> [<timeout_ms>]";
+#include "usb.h"
 
-int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **argv)
+static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **argv)
 {
 	if (argc < 5 || argc > 6)
 		return 1;
@@ -43,4 +46,41 @@ int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **ar
 	}
 
 	return 0;
+}
+
+#define USAGE(ret,progname)	FATAL(ret,"\
+usage: %s %s <bmRequestType> <bRequest> <wValue> <wIndex> <wLength> [<timeout_ms>]\n\
+\n\
+%s\
+",progname,usb_common_usage,usb_common_help)
+
+int main(int argc, char **argv)
+{
+	struct usb_common uc = USB_COMMON_INIT(NULL,0,0,-1);
+	int r;
+	int opt;
+
+	r = usb_common_parse_opts(&uc, argc, argv);
+	if (r)
+		return 1;
+
+	while ((opt = getopt(argc, argv, ":h")) != -1)
+		switch (opt) {
+		case 'h': USAGE(0,argv[0]);
+		case '?': FATAL(1,"illegal option: '-%c'\n", optopt);
+		}
+
+	if (argc - optind < 5 || argc - optind > 6)
+		USAGE(1,argv[0]);
+
+	r = usb_common_setup(&uc);
+	if (r)
+		return 2;
+
+	r = run_usb(uc.ctx, uc.hdev, argc - optind, argv + optind);
+	if (r)
+		fprintf(stderr, "run_usb failed with code %d\n", r);
+
+	usb_common_teardown(&uc);
+	return r;
 }

@@ -16,6 +16,8 @@ endif
 
 all: fxprog test test2 ctl bulk
 
+fxprog: fxprog.o usb.o
+
 test2: fx2-jtag.o test2.o arm9-dbg-jtag.o
 
 ctl: ctl.o usb.o

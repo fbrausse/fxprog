@@ -1,13 +1,16 @@
 
+#define _POSIX_C_SOURCE	201501L	/* getopt(), optind */
+
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <libusb.h>
 #include <stdio.h>
+#include <unistd.h>		/* getopt(), optind */
 
-const char *usage = "<ep> <wLength> [<timeout_ms>]";
+#include "usb.h"
 
-int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **argv)
+static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **argv)
 {
 	int r;
 	if (argc < 2 || argc > 3)
@@ -27,23 +30,8 @@ int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **ar
 		}
 	}
 
-	r = libusb_claim_interface(hdev, 0);
-	if (r) {
-		fprintf(stderr, "error claiming interface 0: %s\n",
-			libusb_error_name(r));
-		return 3;
-	}
-	r = libusb_set_interface_alt_setting(hdev, 0, 1);
-	if (r) {
-		libusb_release_interface(hdev, 0);
-		fprintf(stderr, "error setting alt-setting 0 for interface 0: %s\n",
-			libusb_error_name(r));
-		return 4;
-	}
-
 	int tferd = 0;
 	r = libusb_bulk_transfer(hdev, ep, buf, len, &tferd, timeout);
-	libusb_release_interface(hdev, 0);
 	if (r) {
 		fprintf(stderr, "error during bulk transfer: %s\n",
 			libusb_error_name(r));
@@ -56,4 +44,44 @@ int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **ar
 	}
 
 	return 0;
+}
+
+#define USAGE(ret,progname)	FATAL(ret,"\
+usage: %s %s <ep> <wLength> [<timeout_ms>]\n\
+\n\
+%s%s%s\
+\n\
+Transfer direction: (<ep> & 0x80) ? device to host : host to device\n\
+",progname,usb_common_usage, \
+usb_common_help,usb_common_iface_alt_help,usb_common_iface_help)
+
+int main(int argc, char **argv)
+{
+	struct usb_common uc = USB_COMMON_INIT(NULL,0,0,-1);
+	int r;
+	int opt;
+
+	r = usb_common_parse_opts(&uc, argc, argv);
+	if (r)
+		return 1;
+
+	while ((opt = getopt(argc, argv, ":h")) != -1)
+		switch (opt) {
+		case 'h': USAGE(0,argv[0]);
+		case '?': FATAL(1,"illegal option: '-%c'\n", optopt);
+		}
+
+	if (argc - optind < 2 || argc - optind > 3)
+		USAGE(1,argv[0]);
+
+	r = usb_common_setup(&uc);
+	if (r)
+		return 2;
+
+	r = run_usb(uc.ctx, uc.hdev, argc - optind, argv + optind);
+	if (r)
+		fprintf(stderr, "run_usb failed with code %d\n", r);
+
+	usb_common_teardown(&uc);
+	return r;
 }
