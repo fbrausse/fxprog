@@ -148,20 +148,69 @@ static int parse_dev_spec(struct dev_spec *spec, const char *dev_addr)
 	return 0;
 }
 
-const char *usb_common_usage =
-	"[-c {<bus>.<addr> | <vid>:<pid>}] [-i <iface>] [-a <alt-iface>]";
-const char *usb_common_help = "\
+const char *usb_common_dev_spec_help = "\
   -c <bus>.<addr> N: bus #, M: device # (see /sys/bus/usb/devices/N-*/devnum)\n\
      <vid>:<pid>  address USB device via a Vendor / Product ID pair\n\
                   both formats override " ENV_DEV_ADDR "= in environment\n\
+";
+const char *usb_common_dev_type_help = "\
   -t <dev-type>   use Vendor / Product ID pair identified by shortcut <dev-type>\n\
 ";
 const char *usb_common_iface_help = "\
-  -i <iface>      set interface number <iface> on USB device (default: %d)\n\
+  -i <iface>      use interface number <iface> (default: %d, -1 to disable)\n\
 ";
 const char *usb_common_iface_alt_help = "\
-  -a <alt-iface>  set alt-interface number <alt-iface> (default: -1 to disable)\n\
+  -a <alt-iface>  set alt-setting on interface (default: %d, -1 to disable)\n\
 ";
+
+char * usb_common_usage(const struct usb_common *uc)
+{
+	char buf[256];
+	unsigned n = 0;
+	n += snprintf(buf+n,sizeof(buf)-n, "[-c {<bus>.<addr> | <vid>:<pid>}]");
+	if (uc->n_dev_types)
+		n += snprintf(buf+n, sizeof(buf)-n, " [-t <dev-type>]");
+	if (uc->iface > -2) {
+		n += snprintf(buf+n, sizeof(buf)-n, " [-i <iface>]");
+		if (uc->alt > -2)
+			n += snprintf(buf+n,sizeof(buf)-n, " [-a <alt-iface>]");
+	}
+	return strndup(buf, n);
+}
+
+char * usb_common_help(const struct usb_common *uc)
+{
+	unsigned n = snprintf(NULL, 0, "%s", usb_common_dev_spec_help);
+	if (uc->n_dev_types) {
+		n += snprintf(NULL, 0, "%s\
+                  supported:", usb_common_dev_type_help);
+		for (unsigned i=0; i<uc->n_dev_types; i++)
+			n += 1 + strlen(uc->dev_types[i].name) + 1;
+	}
+	if (uc->iface >= -1) {
+		n += snprintf(NULL, 0, usb_common_iface_help, uc->iface);
+		if (uc->alt >= -1)
+			n += snprintf(NULL,0,usb_common_iface_alt_help,uc->alt);
+	}
+
+	char *s = malloc(n + 1);
+	unsigned at = snprintf(s, n+1, "%s", usb_common_dev_spec_help);
+	if (uc->n_dev_types) {
+		at += snprintf(s+at, n+1-at, "%s\
+                  supported:", usb_common_dev_type_help);
+		for (unsigned i=0; i<uc->n_dev_types; i++)
+			at += snprintf(s+at, n+1-at, " %s%c",
+			               uc->dev_types[i].name,
+			               i+1 < uc->n_dev_types ? ',' : '\n');
+	}
+	if (uc->iface >= -1) {
+		at += snprintf(s+at, n+1-at, usb_common_iface_help, uc->iface);
+		if (uc->alt >= -1)
+			at += snprintf(s+at, n+1-at, usb_common_iface_alt_help,
+			               uc->alt);
+	}
+	return s;
+}
 
 static long opt_parse_long(int argc, char **argv, int default_val, char c)
 {
@@ -176,7 +225,9 @@ static long opt_parse_long(int argc, char **argv, int default_val, char c)
 		if (opt == c) {
 			v = strtol(optarg, &end, 0);
 			if (*end)
-				FATAL(1,"invalid argument for option '-%c': '%s'\n",c,optarg);
+				FATAL(1,
+				      "invalid argument for option '-%c': '%s'\n",
+				      c,optarg);
 		} else if (opt == ':') {
 			FATAL(1,"argument expected for option '-%c'\n",optopt);
 		} else if (opt == '?') {

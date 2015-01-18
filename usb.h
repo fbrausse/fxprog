@@ -51,9 +51,8 @@ libusb_device_handle * usb_common_find_device(
 	const struct dev_type *dev_types, unsigned n_dev_types
 );
 
-extern const char *usb_common_usage;
-extern const char *usb_common_help;
-extern const char *usb_common_iface_help, *usb_common_iface_alt_help;
+char * usb_common_usage(const struct usb_common *uc);
+char * usb_common_help(const struct usb_common *uc);
 
 #if 0
 int main(int argc, char **argv)

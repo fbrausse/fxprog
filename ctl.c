@@ -48,15 +48,15 @@ static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, ch
 	return 0;
 }
 
-#define USAGE(ret,progname)	FATAL(ret,"\
+#define USAGE(ret,progname,uc)	FATAL(ret,"\
 usage: %s %s <bmRequestType> <bRequest> <wValue> <wIndex> <wLength> [<timeout_ms>]\n\
 \n\
 %s\
-",progname,usb_common_usage,usb_common_help)
+",progname,usb_common_usage(uc),usb_common_help(uc))
 
 int main(int argc, char **argv)
 {
-	struct usb_common uc = USB_COMMON_INIT(NULL,0,0,-1);
+	struct usb_common uc = USB_COMMON_INIT(NULL,0,-2,-2);
 	int r;
 	int opt;
 
@@ -66,12 +66,12 @@ int main(int argc, char **argv)
 
 	while ((opt = getopt(argc, argv, ":h")) != -1)
 		switch (opt) {
-		case 'h': USAGE(0,argv[0]);
+		case 'h': USAGE(0,argv[0],&uc);
 		case '?': FATAL(1,"illegal option: '-%c'\n", optopt);
 		}
 
 	if (argc - optind < 5 || argc - optind > 6)
-		USAGE(1,argv[0]);
+		USAGE(1,argv[0],&uc);
 
 	r = usb_common_setup(&uc);
 	if (r)

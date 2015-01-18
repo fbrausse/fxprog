@@ -426,7 +426,7 @@ static int usb_upload_records(
 
 /* main */
 
-static void print_help(const char *prog_name);
+static void print_help(const char *prog_name, const struct usb_common *uc);
 static void print_help_cfg_byte(void);
 
 enum mode {
@@ -501,7 +501,7 @@ int main(int argc, char **argv)
 		case 'I': i2c_conf  = strtoul(optarg, NULL, 0) & 0xffU; break;
 		case 'T': img_type  = strtoul(optarg, NULL, 0) & 0xffU; break;
 		case 'h':
-			print_help(argv[0]);
+			print_help(argv[0], &uc);
 			return 0;
 		case 'H':
 			print_help_cfg_byte();
@@ -647,12 +647,15 @@ out2:
 	return r;
 }
 
-static void print_help(const char *prog_name)
+static void print_help(const char *prog_name, const struct usb_common *uc)
 {
 	unsigned i;
+	char *uc_help = usb_common_help(uc);
+	char *uc_usage = usb_common_usage(uc);
 
-	printf("usage: %s [-c {<N>.<M> | <vid>:<pid>}] [-t <devtype>] <OPERATION>\n", prog_name);
-	printf("\n<OPERATION> is one of\n");
+	printf("usage: %s %s <OPERATION>\n", prog_name, uc_usage);
+	printf("\n");
+	printf("<OPERATION> is one of:\n");
 /*
 	printf("  prog    [-f <fmt>] [-i <fw.dat>] [-r]    -- load RAM w/ firmware\n");
 	printf("  ram_get <addr>{:<to>|+<size>}            -- dump RAM data\n");
@@ -664,12 +667,7 @@ static void print_help(const char *prog_name)
 	printf("load RAM w/ arbitrary data: -l <addr> [-i <in.bin>]\n");
 	printf("dump RAM                  : [-F <fmt>] -d <addr>{:<to>|+<size>}\n");
 	printf("\n");
-	printf("%s", usb_common_help);
-	printf("                  supported:");
-	for (i=0; i<ARRAY_SIZE(dev_types); i++)
-		printf(" %s%c", dev_types[i].name,
-			i < ARRAY_SIZE(dev_types) - 1
-			? ',' : '\n');
+	printf("%s", uc_help);
 	printf("  -q              query device for boot-loader fw type\n");
 	printf("  -f <format>     format of input data, default: " DEFAULT_IN_FMT "\n");
 	printf("                  supported:");
@@ -694,6 +692,9 @@ static void print_help(const char *prog_name)
 	printf("                  <addr>+<size> as binary data to stdout\n");
 	printf("  -h              print this help message\n");
 	printf("  -H              print details about the i2c and image type configuration bytes\n");
+
+	free(uc_usage);
+	free(uc_help);
 }
 
 static void print_help_cfg_byte(void)
