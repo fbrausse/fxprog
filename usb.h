@@ -35,10 +35,11 @@ struct usb_common {
 	const struct dev_type *dev_types;
 	const unsigned n_dev_types;
 	int iface, alt;	/* -2: disabled and don't parse args; -1: disabled */
+	char iface_opt, alt_opt;
 };
 
 #define USB_COMMON_INIT(dev_types,n_dev_types,iface,alt) \
-	{ DEV_SPEC_INIT, NULL, NULL, (dev_types),(n_dev_types),(iface),(alt), }
+	{ DEV_SPEC_INIT, NULL, NULL, (dev_types),(n_dev_types),(iface),(alt),'i','a', }
 
 /* USB helper functions */
 int usb_common_parse_opts(struct usb_common *uc, int argc, char **argv);

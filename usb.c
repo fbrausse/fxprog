@@ -148,19 +148,19 @@ static int parse_dev_spec(struct dev_spec *spec, const char *dev_addr)
 	return 0;
 }
 
-const char *usb_common_dev_spec_help = "\
+static const char *usb_common_dev_spec_help = "\
   -c <bus>.<addr> N: bus #, M: device # (see /sys/bus/usb/devices/N-*/devnum)\n\
      <vid>:<pid>  address USB device via a Vendor / Product ID pair\n\
                   both formats override " ENV_DEV_ADDR "= in environment\n\
 ";
-const char *usb_common_dev_type_help = "\
+static const char *usb_common_dev_type_help = "\
   -t <dev-type>   use Vendor / Product ID pair identified by shortcut <dev-type>\n\
 ";
-const char *usb_common_iface_help = "\
-  -i <iface>      use interface number <iface> (default: %d, -1 to disable)\n\
+static const char *usb_common_iface_help = "\
+  -%c <iface>      use interface number <iface> (default: %d, -1 to disable)\n\
 ";
-const char *usb_common_iface_alt_help = "\
-  -a <alt-iface>  set alt-setting on interface (default: %d, -1 to disable)\n\
+static const char *usb_common_iface_alt_help = "\
+  -%c <alt-iface>  set alt-setting on interface (default: %d, -1 to disable)\n\
 ";
 
 char * usb_common_usage(const struct usb_common *uc)
@@ -171,9 +171,11 @@ char * usb_common_usage(const struct usb_common *uc)
 	if (uc->n_dev_types)
 		n += snprintf(buf+n, sizeof(buf)-n, " [-t <dev-type>]");
 	if (uc->iface > -2) {
-		n += snprintf(buf+n, sizeof(buf)-n, " [-i <iface>]");
+		n += snprintf(buf+n, sizeof(buf)-n, " [-%c <iface>]",
+		              uc->iface_opt);
 		if (uc->alt > -2)
-			n += snprintf(buf+n,sizeof(buf)-n, " [-a <alt-iface>]");
+			n += snprintf(buf+n,sizeof(buf)-n, " [-%c <alt-iface>]",
+			              uc->alt_opt);
 	}
 	return strndup(buf, n);
 }
@@ -188,9 +190,11 @@ char * usb_common_help(const struct usb_common *uc)
 			n += 1 + strlen(uc->dev_types[i].name) + 1;
 	}
 	if (uc->iface >= -1) {
-		n += snprintf(NULL, 0, usb_common_iface_help, uc->iface);
+		n += snprintf(NULL, 0, usb_common_iface_help,
+		              uc->iface_opt, uc->iface);
 		if (uc->alt >= -1)
-			n += snprintf(NULL,0,usb_common_iface_alt_help,uc->alt);
+			n += snprintf(NULL,0,usb_common_iface_alt_help,
+			              uc->alt_opt, uc->alt);
 	}
 
 	char *s = malloc(n + 1);
@@ -204,10 +208,11 @@ char * usb_common_help(const struct usb_common *uc)
 			               i+1 < uc->n_dev_types ? ',' : '\n');
 	}
 	if (uc->iface >= -1) {
-		at += snprintf(s+at, n+1-at, usb_common_iface_help, uc->iface);
+		at += snprintf(s+at, n+1-at, usb_common_iface_help,
+		               uc->iface_opt, uc->iface);
 		if (uc->alt >= -1)
 			at += snprintf(s+at, n+1-at, usb_common_iface_alt_help,
-			               uc->alt);
+			               uc->alt_opt, uc->alt);
 	}
 	return s;
 }
@@ -231,6 +236,7 @@ static long opt_parse_long(int argc, char **argv, int default_val, char c)
 		} else if (opt == ':') {
 			FATAL(1,"argument expected for option '-%c'\n",optopt);
 		} else if (opt == '?') {
+			optind--;
 			break;
 		}
 
@@ -272,9 +278,9 @@ done_opt_parsing:
 		uc->spec.dev_type = t;
 	}
 	if (uc->iface > -2)
-		uc->iface = opt_parse_long(argc, argv, uc->iface, 'i');
+		uc->iface = opt_parse_long(argc, argv, uc->iface, uc->iface_opt);
 	if (uc->alt > -2)
-		uc->alt = opt_parse_long(argc, argv, uc->alt, 'a');
+		uc->alt = opt_parse_long(argc, argv, uc->alt, uc->alt_opt);
 
 	return 0;
 }

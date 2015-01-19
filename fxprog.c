@@ -506,13 +506,8 @@ int main(int argc, char **argv)
 		case 'H':
 			print_help_cfg_byte();
 			return 0;
-		case ':':
-			fprintf(stderr, "option -%c needs a parameter\n",
-				optopt);
-			exit(1);
-		case '?':
-			fprintf(stderr, "invalid option: -%c\n", optopt);
-			exit(1);
+		case ':': FATAL(1,"option -%c needs a parameter\n",optopt);
+		case '?': FATAL(1,"invalid option: -%c\n",optopt);
 		}
 	}
 
@@ -549,18 +544,13 @@ int main(int argc, char **argv)
 		dump_from = strtol(dump, &endptr, 0);
 		c = *endptr++;
 		if (dump_from < 0 || (c != ':' && c != '+') ||
-		    (dump_num = strtol(endptr, &endptr, 0)) < 0 || *endptr) {
-			fprintf(stderr, "invalid dump syntax (-d): %s\n", dump);
-			exit(1);
-		}
+		    (dump_num = strtol(endptr, &endptr, 0)) < 0 || *endptr)
+			FATAL(1,"invalid dump syntax (-d): %s\n",dump);
 		if (c == ':') {
-			if (dump_num < dump_from) {
-				fprintf(stderr,
-					"invalid dump value <to> (%lu): "
+			if (dump_num < dump_from)
+				FATAL(1,"invalid dump value <to> (%lu): "
 					"must be >= <addr> (%lu)\n",
 					dump_num, dump_from);
-				exit(1);
-			}
 			dump_num -= dump_from;
 		}
 	}
