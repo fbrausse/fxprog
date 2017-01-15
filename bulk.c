@@ -10,7 +10,7 @@
 
 #include "usb.h"
 
-static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, char **argv)
+static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int n, int argc, char **argv)
 {
 	int r;
 	if (argc < 2 || argc > 3)
@@ -21,26 +21,28 @@ static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, ch
 	unsigned timeout = argc > 2 ? strtol(argv[2], NULL, 0) : 500;
 
 	uint8_t *buf = calloc(1, len);
-	if (~ep & 0x80) {
-		/* host to device transfer */
-		if (!fread(buf, len, 1, stdin)) {
-			fprintf(stderr, "error reading %u bytes from stdin: %s\n",
-				len, strerror(errno));
-			return 2;
+	while (n < 0 || n--) {
+		if (~ep & 0x80) {
+			/* host to device transfer */
+			if (!fread(buf, len, 1, stdin)) {
+				fprintf(stderr, "error reading %u bytes from stdin: %s\n",
+					len, strerror(errno));
+				return 2;
+			}
 		}
-	}
 
-	int tferd = 0;
-	r = libusb_bulk_transfer(hdev, ep, buf, len, &tferd, timeout);
-	if (r) {
-		fprintf(stderr, "error during bulk transfer: %s\n",
-			libusb_error_name(r));
-		return 5;
-	}
+		int tferd = 0;
+		r = libusb_bulk_transfer(hdev, ep, buf, len, &tferd, timeout);
+		if (r) {
+			fprintf(stderr, "error during bulk transfer: %s\n",
+				libusb_error_name(r));
+			return 5;
+		}
 
-	if (ep & 0x80) {
-		/* device to host transfer */
-		r = fwrite(buf, tferd, 1, stdout);
+		if (ep & 0x80) {
+			/* device to host transfer */
+			r = fwrite(buf, tferd, 1, stdout);
+		}
 	}
 
 	return 0;
@@ -50,6 +52,7 @@ static int run_usb(libusb_context *ctx, libusb_device_handle *hdev, int argc, ch
 usage: %s %s <ep> <wLength> [<timeout_ms>]\n\
 \n\
 %s\
+  -C <num>    continuous transfers, 0 for infinite, stop on error (default: 1)\n\
 \n\
 Transfer direction: (<ep> & 0x80) ? device to host : host to device\n\
 ",progname,usb_common_usage(uc),usb_common_help(uc))
@@ -59,13 +62,15 @@ int main(int argc, char **argv)
 	struct usb_common uc = USB_COMMON_INIT(NULL,0,-1,-1);
 	int r;
 	int opt;
+	int n = 1;
 
 	r = usb_common_parse_opts(&uc, argc, argv);
 	if (r)
 		return 1;
 
-	while ((opt = getopt(argc, argv, ":h")) != -1)
+	while ((opt = getopt(argc, argv, ":C:h")) != -1)
 		switch (opt) {
+		case 'C': n = strtol(optarg, NULL, 0); break;
 		case 'h': USAGE(0,argv[0],&uc);
 		case '?': FATAL(1,"illegal option: '-%c'\n", optopt);
 		}
@@ -77,7 +82,7 @@ int main(int argc, char **argv)
 	if (r)
 		return 2;
 
-	r = run_usb(uc.ctx, uc.hdev, argc - optind, argv + optind);
+	r = run_usb(uc.ctx, uc.hdev, n, argc - optind, argv + optind);
 	if (r)
 		fprintf(stderr, "run_usb failed with code %d\n", r);
 
