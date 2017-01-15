@@ -14,12 +14,9 @@ endif
 
 .PHONY: all clean debug
 
-all: fxprog test test2 ctl bulk
+all: fxprog ctl bulk
 
 fxprog: fxprog.o usb.o
-
-test2: fx2-jtag.o test2.o arm9-dbg-jtag.o
-
 ctl: ctl.o usb.o
 bulk: bulk.o usb.o
 
@@ -27,4 +24,4 @@ bulk: bulk.o usb.o
 	$(COMPILE.c) $< $(OUTPUT_OPTION)
 
 clean:
-	$(RM) fxprog test test2 *.o
+	$(RM) fxprog ctl bulk *.o
