@@ -53,6 +53,7 @@ usage: %s %s <ep> <wLength> [<timeout_ms>]\n\
 \n\
 %s\
   -C <num>    continuous transfers, 0 for infinite, stop on error (default: 1)\n\
+  -d <delay>  release USB device for <delay> ms between transfers (default: 0)\n\
 \n\
 Transfer direction: (<ep> & 0x80) ? device to host : host to device\n\
 ",progname,usb_common_usage(uc),usb_common_help(uc))
@@ -63,14 +64,16 @@ int main(int argc, char **argv)
 	int r;
 	int opt;
 	int n = 1;
+	int delay = 0;
 
 	r = usb_common_parse_opts(&uc, argc, argv);
 	if (r)
 		return 1;
 
-	while ((opt = getopt(argc, argv, ":C:h")) != -1)
+	while ((opt = getopt(argc, argv, ":C:d:h")) != -1)
 		switch (opt) {
 		case 'C': n = strtol(optarg, NULL, 0); break;
+		case 'd': delay = strtol(optarg, NULL, 0); break;
 		case 'h': USAGE(0,argv[0],&uc);
 		case '?': FATAL(1,"illegal option: '-%c'\n", optopt);
 		}
@@ -78,14 +81,19 @@ int main(int argc, char **argv)
 	if (argc - optind < 2 || argc - optind > 3)
 		USAGE(1,argv[0],&uc);
 
-	r = usb_common_setup(&uc);
-	if (r)
-		return 2;
+	do {
+		r = usb_common_setup(&uc);
+		if (r)
+			return 2;
 
-	r = run_usb(uc.ctx, uc.hdev, n, argc - optind, argv + optind);
-	if (r)
-		fprintf(stderr, "run_usb failed with code %d\n", r);
+		r = run_usb(uc.ctx, uc.hdev, delay ? 1 : n, argc - optind, argv + optind);
+		if (r)
+			fprintf(stderr, "run_usb failed with code %d\n", r);
 
-	usb_common_teardown(&uc);
+		usb_common_teardown(&uc);
+		if (delay)
+			nanosleep(&(struct timespec){ delay / 1000, (delay % 1000) * 1e6 }, NULL);
+	} while (delay && (n < 0 || n--));
+
 	return r;
 }
